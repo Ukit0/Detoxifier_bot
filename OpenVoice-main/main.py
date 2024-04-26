@@ -80,7 +80,7 @@ def paraphrase(text, model, tokenizer, n=None, max_length="auto", beams=3):
 def ai_voice(text):
     print('Start')
 
-    ckpt_converter = '../checkpoints/converter'
+    ckpt_converter = '../checkpoints_v2\converter'
     device="cuda:0" if torch.cuda.is_available() else "cpu" 
     output_dir = './voice' 
     tone_color_converter = ToneColorConverter(f'{ckpt_converter}/config.json', device=device) 
