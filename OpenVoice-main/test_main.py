@@ -1,81 +1,17 @@
-import speech_recognition as sr 
 import os
 from datetime import datetime
 
 import torch 
 import se_extractor 
 from api import ToneColorConverter 
-import pyttsx3 
-
-from transformers import T5ForConditionalGeneration, AutoTokenizer
-
-from telebot import TeleBot
-
-import ffmpeg
-
-
-number_of_calls = 0
-
-def voice_translation(file_input):
-    global number_of_calls
-    
-    print('Translation to text')
- 
-    r = sr.Recognizer()
-
-    with sr.AudioFile(f'voice/{file_input}.flac') as voice_file:
-        r.adjust_for_ambient_noise(voice_file) 
-        audio = r.record(voice_file)
-        words = r.recognize_google(audio, language = 'ru')
-
-    number_of_calls += 1
-    print(f'Номер вызова: {number_of_calls}')
-
-    return words #
+import pyttsx3
 
 
 
-base_model_name = 'sberbank-ai/ruT5-base'
-model_name = 'SkolkovoInstitute/ruT5-base-detox'
-
-tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-model = T5ForConditionalGeneration.from_pretrained(model_name)
-
-def paraphrase(text, model, tokenizer, n=None, max_length="auto", beams=3):
-    print('Taraphrase start!')
-
-    texts = [text] if isinstance(text, str) else text
-    inputs = tokenizer(texts, return_tensors="pt", padding=True)["input_ids"].to(
-        model.device
-    )
-    if max_length == "auto":
-        max_length = inputs.shape[1] + 10
-
-    result = model.generate(
-        inputs,
-        num_return_sequences=n or 1,
-        do_sample=True,
-        temperature=1.0,
-        repetition_penalty=10.0,
-        max_length=max_length,
-        min_length=int(0.5 * max_length),
-        num_beams=beams
-    )
-    texts = [tokenizer.decode(r, skip_special_tokens=True) for r in result]
-
-    print('Taraphrase end!')
-
-    if not n and isinstance(text, str):
-        return texts[0]
-    return texts
-
-
-
-
-def ai_voice(text, file_name, src_path = ''):
+def ai_voice(text, src_path = ''):
     print('Start')
 
-    ckpt_converter = '../checkpoints/converter'
+    ckpt_converter = '../checkpoints_v2\converter'
     device="cuda:0" if torch.cuda.is_available() else "cpu" 
     output_dir = 'voice' 
     tone_color_converter = ToneColorConverter(f'{ckpt_converter}/config.json', device=device) 
@@ -83,8 +19,8 @@ def ai_voice(text, file_name, src_path = ''):
     os.makedirs(output_dir, exist_ok=True) 
     
     print(1) 
-    base_speaker = f'{output_dir}/{file_name}.wav' #Файл для тона 
-    reference_speaker = f'{output_dir}/{file_name}.mp3' #Файл для обучения 
+    base_speaker = f'{output_dir}/Record.wav' #Файл для тона 
+    reference_speaker = f'{output_dir}/Piece.mp3' #Файл для обучения 
     
     print(2)
     source_se, audio_name = se_extractor.get_se(base_speaker, tone_color_converter, vad=True)
@@ -125,71 +61,13 @@ def ai_voice(text, file_name, src_path = ''):
     
     print("Good")
 
-    return save_path
+    os.remove(src_path)
 
-
-
-
-def main():
-    print('Super start')
-
-    TOKEN_BOT = ''  
-    bot = TeleBot(TOKEN_BOT)
-
-    @bot.message_handler(commands=['start']) 
-    def voice_processing(message):
-        bot.send_message(message.chat.id, 'Hello')
-
-
-    @bot.message_handler(content_types=['voice']) 
-    def voice_processing(message):
-        print('Voice')
-
-        filename = f'sound_{message.chat.id}_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}'
-        format_ = ['ogg','flac','wav','mp3']
-
-        file_info = bot.get_file(message.voice.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        with open(f'voice/{filename}.ogg', 'wb') as new_file: 
-            new_file.write(downloaded_file)
-        
-        for formatt in format_[1:]:
-            ffmpeg.input(f'voice/{filename}.ogg').output(f'voice/{filename}.{formatt}').run()
-        print('VOICE2')
-
-        text = voice_translation(filename) 
-
-        clean_text = paraphrase(text, model, tokenizer) 
-
-        print('Not')
-        tmp_path = ''
-        for i in range(3):
-            if i < 1: voice_ai_path = ai_voice(clean_text, filename)
-            else: voice_ai_path = ai_voice(clean_text, filename, voice_ai_path)
-            os.remove(tmp_path) if len(tmp_path) != 0 else None
-            tmp_path = voice_ai_path
-        print('Yes')
-
-        with open(voice_ai_path, 'rb') as audio_ai:
-            bot.send_voice(message.chat.id, audio_ai)
-
-        for formatt in format_:
-            os.remove(f'voice/{filename}.{formatt}')
-        #os.remove(voice_ai_path)
-    
-
-    @bot.message_handler(content_types=['text']) 
-    def voice_processing(message):
-        text = input()
-        clean_text = paraphrase(text, model, tokenizer)
-        bot.send_message(message.chat.id, clean_text)
-
-    bot.polling(none_stop=True, interval=0)
 
     #choice = input('select what you want to filter - text / voice:\n')
 
 
-main()
+ai_voice('Программа как же ты меня достала надеюсь что когда ты заработаешь ты поймешь что ты плохой человек когда же все это наконец произойдёт')
 #conda activate openvoice 
 #cd Desktop\PyAi\OpenVoice-main
 #python test_main.py

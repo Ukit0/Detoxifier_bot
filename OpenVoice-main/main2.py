@@ -10,26 +10,47 @@ import pyttsx3
 from transformers import T5ForConditionalGeneration, AutoTokenizer
 
 from telebot import TeleBot
+from telebot import types
+
+import sqlite3
 
 
 
 
-number_of_calls = 0
 
-def voice_translation(file_input):
-    global number_of_calls
+def sql_request(sql):
+    try:
+        # Обращаемся к БД, если её нет, то она автоматически создается
+        connection = sqlite3.connect("database/test.db")
+
+        # Чтобы выполнить запрос к таблице в базе данных, нам нужно использовать объект курсора
+        cursor = connection.cursor()
+
+        # Теперь можем выполнить запрос к БД
+        cursor.execute(sql)
+        result = cursor.fetchall()
+        # Фиксируем изменения в БД
+        connection.commit()
+        
+        # Не забываем закрыть соединение
+        connection.close()
+        return result
+    except Exception as e:
+        print(e)
+
+
+
+
+def voice_translation(file_name):
     
     print('Translation to text')
  
     r = sr.Recognizer()
 
-    with sr.AudioFile(f'voice/{file_input}.flac') as voice_file:
+    with sr.AudioFile(f'voice/{file_name}.flac') as voice_file:
         r.adjust_for_ambient_noise(voice_file) 
         audio = r.record(voice_file)
         words = r.recognize_google(audio, language = 'ru')
-
-    number_of_calls += 1
-    print(f'Номер вызова: {number_of_calls}')
 
     return words #
 
@@ -74,9 +95,9 @@ def paraphrase(text, model, tokenizer, n=None, max_length="auto", beams=3):
 
 
 def ai_voice(text, file_name):
-    print('Start')
 
-    ckpt_converter = '../checkpoints/converter'
+    print('Start')
+    ckpt_converter = '../checkpoints_v2\converter'
     device="cuda:0" if torch.cuda.is_available() else "cpu" 
     output_dir = 'voice' 
     tone_color_converter = ToneColorConverter(f'{ckpt_converter}/config.json', device=device) 
@@ -125,7 +146,7 @@ def ai_voice(text, file_name):
     
     print("Good")
 
-    return save_path
+    return save_path, src_path
 
 
 
@@ -133,58 +154,99 @@ def ai_voice(text, file_name):
 def main():
     print('Super start')
 
-    TOKEN_BOT = ''
+    TOKEN_BOT = '6509344522:AAHgNnYOj_jqNC6aiO-MNxjSNzBPmU-1U_0'
     bot = TeleBot(TOKEN_BOT)
 
+    sql_request("CREATE TABLE table_name "\
+                "(`id` INTEGER PRIMARY KEY AUTOINCREMENT,"\
+                " `users_id` text,"\
+                " `type_message` text);")
+
+    comand = ('Исправь аудио запись','Исправь текст')
+
     @bot.message_handler(commands=['start']) 
-    def voice_processing(message):
-        bot.send_message(message.chat.id, 'Hello')
+    def start_processing(message):
+        
+        if not(sql_request(f"SELECT users_id FROM table_name WHERE users_id = '{message.chat.id}';")):
+
+            sql_request("INSERT INTO table_name (`users_id`, `type_message`) "\
+                        f"VALUES ('{message.chat.id}','h');")
+
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
+            keyboard.add(types.KeyboardButton('Исправь текст'), types.KeyboardButton('Исправь аудио запись'))
+
+            bot.send_message(message.chat.id, f'Привет {message.from_user.first_name}!', reply_markup=keyboard)
 
 
     @bot.message_handler(content_types=['voice']) 
     def voice_processing(message):
         print('Voice')
 
-        object_ = f'{message.chat.id}_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}'
-        filename = f'sound{object_}'
-        format_ = ['ogg','flac','wav','mp3']
+        if sql_request(f"SELECT type_message FROM table_name WHERE users_id = '{message.chat.id}';")[0][0] == 'voice':
 
-        file_info = bot.get_file(message.voice.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
-        with open(f'voice/{filename}.ogg', 'wb') as new_file: 
-            new_file.write(downloaded_file)
-        
-        for formatt in format_[1:]:
-            os.system(f'ffmpeg.exe -i voice/{filename}.ogg voice/{filename}.{formatt}')
-        print('VOICE2')
-        text = voice_translation(filename) 
+            print('Pipao1')
+            object_ = f'{message.chat.id}_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}'
+            filename = f'sound{object_}'
+            format_ = ('ogg','flac','wav','mp3')
 
-        clean_text = paraphrase(text, model, tokenizer) 
+            file_info = bot.get_file(message.voice.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            with open(f'voice/{filename}.ogg', 'wb') as new_file: 
+                new_file.write(downloaded_file)
+            print('Pipao2')
 
-        print('Not')
-        voice_ai_file_path = ai_voice(clean_text,filename)
-        print('Yes')
+            for formatt in format_[1:]:
+                #ffmpeg.input(f'voice/{filename}.ogg').output(f'voice/{filename}.{formatt}').run()
+                os.system(f'ffmpeg.exe -i voice/{filename}.ogg voice/{filename}.{formatt}')
+            print('VOICE2')
+            text = voice_translation(filename) 
 
-        with open(voice_ai_file_path, 'rb') as audio_ai:
-            bot.send_voice(message.chat.id, audio_ai)
+            clean_text = paraphrase(text, model, tokenizer) 
 
-        for formatt in format_:
-            os.remove(f'voice/{filename}.{formatt}')
-        #os.remove(voice_ai_file_path)
+            print('Not')
+            voice_ai_file_path, tmp_path = ai_voice(clean_text,filename)
+            print('Yes')
+
+            with open(voice_ai_file_path, 'rb') as audio_ai:
+                bot.send_voice(message.chat.id, audio_ai)
+
+            os.remove(tmp_path)
+            for formatt in format_:
+                os.remove(f'voice/{filename}.{formatt}')
+            os.remove(voice_ai_file_path)
     
 
     @bot.message_handler(content_types=['text']) 
-    def voice_processing(message):
-        text = input()
-        clean_text = paraphrase(text, model, tokenizer)
-        bot.send_message(message.chat.id, clean_text)
+    def text_processing(message):
+
+        if bool(sql_request(f"SELECT users_id FROM table_name WHERE users_id = '{message.chat.id}';")):
+            
+            if message.text == comand[1]:
+                bot.send_message(message.chat.id, 'Готов работать с твоим текстом!')
+
+                sql_request(f"UPDATE table_name SET type_message = 'text' WHERE users_id = '{message.chat.id}'")
+
+                print('Okey')
+
+            elif message.text == comand[0]:
+                bot.send_message(message.chat.id, 'Готов слушать тебя и исправлять!')
+
+                sql_request(f"UPDATE table_name SET type_message = 'voice' WHERE users_id = '{message.chat.id}'")
+                
+                print('Lets do it')
+            
+            elif sql_request(f"SELECT type_message FROM table_name WHERE users_id = '{message.chat.id}';")[0][0] == 'text' and message.text != comand[0] and message.text != comand[1]:
+                print('Pipao')
+                clean_text = paraphrase(message.text, model, tokenizer)
+                bot.send_message(message.chat.id, clean_text)
+
 
     bot.polling(none_stop=True, interval=0)
 
-    #choice = input('select what you want to filter - text / voice:\n')
 
 
 main()
+
 #conda activate openvoice 
 #cd Desktop\PyAi\OpenVoice-main
 #python main2.py
