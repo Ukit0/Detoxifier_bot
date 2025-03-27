@@ -154,7 +154,7 @@ def ai_voice(text, file_name):
 def main():
     print('Super start')
 
-    TOKEN_BOT = '6509344522:AAHgNnYOj_jqNC6aiO-MNxjSNzBPmU-1U_0'
+    TOKEN_BOT = ''
     bot = TeleBot(TOKEN_BOT)
 
     sql_request("CREATE TABLE table_name "\
